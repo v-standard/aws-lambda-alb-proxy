@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"net/url"
 
 	"github.com/aws/aws-lambda-go/events"
 )
@@ -11,13 +12,21 @@ type lambdaAdapterWithContext struct {
 }
 
 func (a *lambdaAdapterWithContext) ProxyWithContext(ctx context.Context, req events.ALBTargetGroupRequest) (events.ALBTargetGroupResponse, error) {
+	queryStringParameters, err := UnescapeQueryString(req.QueryStringParameters)
+	if err != nil {
+		return events.ALBTargetGroupResponse{}, err
+	}
+	multiValueQueryStringParameters, err := UnescapeMultiValueQueryString(req.MultiValueQueryStringParameters)
+	if err != nil {
+		return events.ALBTargetGroupResponse{}, err
+	}
 	apigwReq := events.APIGatewayProxyRequest{
 		Path:                            req.Path,
 		HTTPMethod:                      req.HTTPMethod,
 		Headers:                         req.Headers,
 		MultiValueHeaders:               req.MultiValueHeaders,
-		QueryStringParameters:           req.QueryStringParameters,
-		MultiValueQueryStringParameters: req.MultiValueQueryStringParameters,
+		QueryStringParameters:           queryStringParameters,
+		MultiValueQueryStringParameters: multiValueQueryStringParameters,
 		Body:                            req.Body,
 		IsBase64Encoded:                 req.IsBase64Encoded,
 	}
@@ -34,4 +43,38 @@ func (a *lambdaAdapterWithContext) ProxyWithContext(ctx context.Context, req eve
 func ALBProxyWithContext(f func(context.Context, events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error)) func(context.Context, events.ALBTargetGroupRequest) (events.ALBTargetGroupResponse, error) {
 	adapter := lambdaAdapterWithContext{f: f}
 	return adapter.ProxyWithContext
+}
+
+func UnescapeQueryString(qs map[string]string) (map[string]string, error) {
+	res := map[string]string{}
+	for k, v := range qs {
+		key, err := url.QueryUnescape(k)
+		if err != nil {
+			return nil, err
+		}
+		value, err := url.QueryUnescape(v)
+		if err != nil {
+			return nil, err
+		}
+		res[key] = value
+	}
+	return res, nil
+}
+
+func UnescapeMultiValueQueryString(qs map[string][]string) (map[string][]string, error) {
+	res := map[string][]string{}
+	for k, v := range qs {
+		key, err := url.QueryUnescape(k)
+		if err != nil {
+			return nil, err
+		}
+		for i := range v {
+			value, err := url.QueryUnescape(v[i])
+			if err != nil {
+				return nil, err
+			}
+			res[key] = append(res[key], value)
+		}
+	}
+	return res, nil
 }
