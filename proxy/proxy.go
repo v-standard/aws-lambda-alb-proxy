@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/url"
+	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
 )
@@ -20,6 +21,13 @@ func (a *lambdaAdapterWithContext) ProxyWithContext(ctx context.Context, req eve
 	if err != nil {
 		return events.ALBTargetGroupResponse{}, err
 	}
+	var hostname string
+	if host, ok := req.Headers["host"]; ok && len(host) > 0 {
+		hostname = host
+	}
+	if host, ok := req.MultiValueHeaders["host"]; ok && len(host) > 0 && len(host[0]) > 0 {
+		hostname = host[0]
+	}
 	apigwReq := events.APIGatewayProxyRequest{
 		Path:                            req.Path,
 		HTTPMethod:                      req.HTTPMethod,
@@ -29,6 +37,10 @@ func (a *lambdaAdapterWithContext) ProxyWithContext(ctx context.Context, req eve
 		MultiValueQueryStringParameters: multiValueQueryStringParameters,
 		Body:                            req.Body,
 		IsBase64Encoded:                 req.IsBase64Encoded,
+		RequestContext: events.APIGatewayProxyRequestContext{
+			DomainName:   hostname,
+			DomainPrefix: strings.Split(hostname, ".")[0],
+		},
 	}
 	apigwRes, err := a.f(ctx, apigwReq)
 	return events.ALBTargetGroupResponse{
